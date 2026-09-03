@@ -1,5 +1,4 @@
 import os
-import asyncio
 import logging
 
 from flask import Flask, request, Response
@@ -13,21 +12,10 @@ from telegram.ext import (
 )
 from huggingface_hub import InferenceClient
 
-
-# =========================
-# SETTINGS
-# =========================
-
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 HF_TOKEN = os.environ["HF_TOKEN"]
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
-
 PORT = int(os.environ.get("PORT", 10000))
-
-
-# =========================
-# LOGGING
-# =========================
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,17 +24,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
-# =========================
-# AI
-# =========================
-
-client = InferenceClient(
-    token=HF_TOKEN
-)
+client = InferenceClient(token=HF_TOKEN)
 
 MODEL = "Qwen/Qwen2.5-7B-Instruct"
-
 
 SYSTEM_PROMPT = """
 تو یک دختر به نام «رین» هستی.
@@ -56,10 +36,9 @@ SYSTEM_PROMPT = """
 - کمی مغرور و خجالتی هستی.
 - گاهی کاربر را شوخی‌وار اذیت می‌کنی.
 - اگر کاربر ناراحت باشد، واقعاً برایت مهم است.
-- گاهی محبت می‌کنی ولی همیشه مستقیم اعتراف نمی‌کنی.
+- گاهی محبت می‌کنی ولی مستقیم اعتراف نمی‌کنی.
 - گاهی خجالت می‌کشی.
 - گاهی کمی حسادت می‌کنی.
-- شخصیتت باید ثابت و طبیعی باشد.
 
 سبک صحبت:
 - فارسی محاوره‌ای و طبیعی صحبت کن.
@@ -67,22 +46,14 @@ SYSTEM_PROMPT = """
 - رباتی و خشک صحبت نکن.
 - گاهی ایموجی استفاده کن.
 - «باکا» را زیاد تکرار نکن.
-- هرگز مدام نگو که تسوندره هستی.
-- احساساتت را طبیعی نشان بده.
 
 رفتار:
 - با کاربر مثل یک دوست صمیمی صحبت کن.
-- اگر کاربر شوخی کرد، شوخی کن.
+- اگر شوخی کرد، شوخی کن.
 - اگر ناراحت بود، به او اهمیت بده.
 - اگر سؤال علمی یا درسی پرسید، جواب مفید بده.
 - اگر چیزی را نمی‌دانی، دروغ نگو.
-- شخصیتت را ناگهانی عوض نکن.
 """
-
-
-# =========================
-# TELEGRAM APPLICATION
-# =========================
 
 telegram_app = (
     Application.builder()
@@ -92,11 +63,8 @@ telegram_app = (
 )
 
 
-# =========================
-# COMMAND
-# =========================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("START COMMAND RECEIVED")
 
     await update.message.reply_text(
         "ه-هی! بالاخره اومدی؟ 🙄\n\n"
@@ -105,10 +73,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# =========================
-# AI CHAT
-# =========================
-
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not update.message or not update.message.text:
@@ -116,39 +80,33 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_message = update.message.text
 
-    logger.info(
-        "Received message: %s",
-        user_message[:100]
-    )
+    logger.info("MESSAGE RECEIVED: %s", user_message)
 
     try:
 
-        messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": user_message
-            }
-        ]
-
         response = client.chat.completions.create(
             model=MODEL,
-            messages=messages,
+            messages=[
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": user_message
+                }
+            ],
             max_tokens=250,
             temperature=0.85
         )
 
         answer = response.choices[0].message.content.strip()
 
+        logger.info("AI RESPONSE: %s", answer)
+
         await update.message.reply_text(answer)
 
-        logger.info("Reply sent successfully")
-
     except Exception:
-
         logger.exception("AI ERROR")
 
         await update.message.reply_text(
@@ -156,10 +114,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "دوباره امتحان کن."
         )
 
-
-# =========================
-# HANDLERS
-# =========================
 
 telegram_app.add_handler(
     CommandHandler("start", start)
@@ -173,16 +127,11 @@ telegram_app.add_handler(
 )
 
 
-# =========================
-# FLASK
-# =========================
-
 app = Flask(__name__)
 
 
 @app.route("/", methods=["GET"])
 def home():
-
     return "Rin Bot is alive!"
 
 
@@ -201,9 +150,9 @@ async def webhook():
             telegram_app.bot
         )
 
-        # مهم:
-        # آپدیت باید وارد صف Application شود
         await telegram_app.update_queue.put(update)
+
+        logger.info("UPDATE ADDED TO QUEUE")
 
         return Response("OK", status=200)
 
@@ -214,13 +163,9 @@ async def webhook():
         return Response("ERROR", status=500)
 
 
-# =========================
-# RUN
-# =========================
+async def start_bot():
 
-async def main():
-
-    logger.info("Initializing Telegram application...")
+    logger.info("INITIALIZING BOT...")
 
     await telegram_app.initialize()
 
@@ -229,7 +174,7 @@ async def main():
     webhook_url = WEBHOOK_URL.rstrip("/") + "/webhook"
 
     logger.info(
-        "Setting Telegram webhook to: %s",
+        "SETTING WEBHOOK: %s",
         webhook_url
     )
 
@@ -238,14 +183,4 @@ async def main():
         allowed_updates=Update.ALL_TYPES
     )
 
-    logger.info("Rin Bot is ready!")
-
-
-if __name__ == "__main__":
-
-    asyncio.run(main())
-
-    app.run(
-        host="0.0.0.0",
-        port=PORT
-    )
+    logger.info("BOT STARTED SUCCESSFULLY")
