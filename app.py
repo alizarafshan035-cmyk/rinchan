@@ -184,3 +184,14 @@ async def start_bot():
     )
 
     logger.info("BOT STARTED SUCCESSFULLY")
+if __name__ == "__main__":
+    import asyncio
+    import uvicorn
+
+    asyncio.run(start_bot())
+
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=PORT
+    )
