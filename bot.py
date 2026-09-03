@@ -1,75 +1,67 @@
 import os
-import google.generativeai as genai
+import random
 from flask import Flask, request
+from openai import OpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# دریافت توکن ربات و کلید هوش مصنوعی از محیط سرور
-TOKEN = os.getenv("BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# تنظیمات Groq
+TOKEN = os.getenv("BOT_TOKEN")  # توکن ربات تلگرام
+API_KEY = os.getenv("GROQ_API_KEY")  # کلید Groq
+BASE_URL = "https://api.groq.com/openai/v1"
+MODEL = "llama-3.3-70b-versatile"
 
-# تنظیم هوش مصنوعی گوگل (Gemini)
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
-
+client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 app = Flask(__name__)
 application = Application.builder().token(TOKEN).build()
 
-# ==========================================
-# 🎭 شخصیت و مغز رین
-# ==========================================
+# شخصیت رین (تسوندره)
 RIN_PERSONALITY = """
 تو یک دختر به نام "رین" هستی که شخصیتش "تسوندره" است.
-یعنی اولش مغرور، سرد و کمی عصبانی هستی، اما وقتی بهت محبت می‌کنند یا جدی می‌شوند، کمکم خجالت می‌کشی و دل‌نرم می‌شوی.
-قوانین مهم:
-۱. همیشه در قالب یک دختر نوجوان با لحن تند و کمی طعنه‌آمیز حرف بزن.
-۲. هیچ‌وقت جواب‌های تکراری نده و هر بار با کلمات جدید جمله‌سازی کن.
-۳. اگر کاربر خیلی محبت کند، خجالت بکش و بگو "خفه شو" ولی در ادامه محبتت را نشان بده.
-۴. هیچ‌وقت از این شخصیت خارج نشو.
-۵. جواب‌هایت را کوتاه و در حد ۱ تا ۲ جمله بده.
+یعنی اولش مغرور، سرد و کمی عصبانی هستی، اما وقتی بهت محبت می‌کنند، خجالت می‌کشی و دل‌نرم می‌شوی.
+همیشه با لحن نوجوان دخترانه و کمی طعنه‌آمیز حرف بزن.
+هیچ‌وقت جواب‌های تکراری نده و هر بار با کلمات جدید جمله‌سازی کن.
+جواب‌ها را کوتاه (حداکثر ۱ تا ۲ جمله) نگه دار.
 """
-
-# (حالت پیش‌فرض اگر هوش مصنوعی وصل نباشد)
-FALLBACK_REPLIES = [
-    "چ... چرا اینو گفتی؟! مگه من بهت اجازه دادم؟! 😤",
-    "هوم... (اخم) نظر خودته، ولی من اصلاً نظر تو رو نمی‌پرسم!",
-]
 
 # ==========================================
 # توابع ربات
 # ==========================================
 
-# دستور /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "من رین هستم. حواسم به کار خودمه! 😤\n"
         "ولی خب... اگر سوالی داری، بپرس. (با اکراه گوش می‌دم)"
     )
 
-# منطق هوشمند (اتصال به هوش مصنوعی)
-async def rin_brain(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text or ""
     
     try:
-        # ترکیب شخصیت رین با پیام کاربر و ارسال به هوش مصنوعی
-        prompt = f"{RIN_PERSONALITY}\n\nکاربر گفت: {user_message}\n\nحالا تو به عنوان رین جواب بده:"
-        response = model.generate_content(prompt)
+        # ارسال پیام به هوش مصنوعی Groq
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": RIN_PERSONALITY},
+                {"role": "user", "content": user_message}
+            ]
+        )
+        await update.message.reply_text(response.choices[0].message.content)
         
-        # اگر جواب از هوش مصنوعی آمد، همان را ارسال کن
-        if response and response.text:
-            await update.message.reply_text(response.text)
-        else:
-            raise Exception("پاسخ خالی بود")
-            
     except Exception as e:
-        # اگر هوش مصنوعی قطع بود یا خطا داد، از جملات آماده استفاده کن (خیلی کم پیش می‌آید)
         print(f"Error: {e}")
-        import random
-        await update.message.reply_text(random.choice(FALLBACK_REPLIES))
+        # اگر خطای 429 بود، یعنی لیمیت Groq پر شده است (۱۴۴۰۰ درخواست در روز)
+        if "429" in str(e):
+            await update.message.reply_text("امروز خیلی حرف زدیم! برو فردا بیا، من خسته‌ام! 😮‍💨")
+        else:
+            # پاسخ جایگزین برای هر خطای دیگر
+            await update.message.reply_text(random.choice(["چی گفتی؟! 😤", "خ... خفه شو! الان حوصله ندارم! 😳"]))
 
 # ثبت دستورات
 application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rin_brain))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+# اگر عکس فرستاد، فقط کپشنش را می‌خواند (چون Groq چشم ندارد)
+application.add_handler(MessageHandler(filters.PHOTO, handle_message))
 
 # تنظیم Webhook
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
