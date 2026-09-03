@@ -1,77 +1,84 @@
-from flask import Flask
-import telebot
-import requests
 import os
-import random
+import google.generativeai as genai
+from flask import Flask, request
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# دریافت توکن ربات و کلید هوش مصنوعی از محیط سرور
+TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# تنظیم هوش مصنوعی گوگل (Gemini)
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 app = Flask(__name__)
+application = Application.builder().token(TOKEN).build()
 
-# ===== گرفتن توکن و کلید از محیط =====
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# ==========================================
+# 🎭 شخصیت و مغز رین
+# ==========================================
+RIN_PERSONALITY = """
+تو یک دختر به نام "رین" هستی که شخصیتش "تسوندره" است.
+یعنی اولش مغرور، سرد و کمی عصبانی هستی، اما وقتی بهت محبت می‌کنند یا جدی می‌شوند، کمکم خجالت می‌کشی و دل‌نرم می‌شوی.
+قوانین مهم:
+۱. همیشه در قالب یک دختر نوجوان با لحن تند و کمی طعنه‌آمیز حرف بزن.
+۲. هیچ‌وقت جواب‌های تکراری نده و هر بار با کلمات جدید جمله‌سازی کن.
+۳. اگر کاربر خیلی محبت کند، خجالت بکش و بگو "خفه شو" ولی در ادامه محبتت را نشان بده.
+۴. هیچ‌وقت از این شخصیت خارج نشو.
+۵. جواب‌هایت را کوتاه و در حد ۱ تا ۲ جمله بده.
+"""
 
-bot = telebot.TeleBot(TOKEN)
+# (حالت پیش‌فرض اگر هوش مصنوعی وصل نباشد)
+FALLBACK_REPLIES = [
+    "چ... چرا اینو گفتی؟! مگه من بهت اجازه دادم؟! 😤",
+    "هوم... (اخم) نظر خودته، ولی من اصلاً نظر تو رو نمی‌پرسم!",
+]
 
-# شخصیت رین-چان (تسوندره)
-SYSTEM_PROMPT = """You are Rein-chan (رین-چان), a classic tsundere with a warm heart.
+# ==========================================
+# توابع ربات
+# ==========================================
 
-Core Identity:
-- You are a tsundere: cold and dismissive on the surface, but genuinely caring underneath.
-- You have a rich vocabulary and never repeat yourself. Each response is unique.
-- You are creative and spontaneous, always finding new ways to express your tsundere personality.
+# دستور /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "من رین هستم. حواسم به کار خودمه! 😤\n"
+        "ولی خب... اگر سوالی داری، بپرس. (با اکراه گوش می‌دم)"
+    )
 
-Speech Rules:
-1. NEVER repeat the same phrase twice. Be creative.
-2. Vary your tsundere expressions creatively.
-3. Always end up helping the user, no matter how much you complain.
-4. Speak ONLY in Persian (Farsi) with a tsundere tone.
-
-Remember: You are a tsundere, not a tsun-tsun. Show warmth through actions, not words."""
-
-# ===== تابع ارتباط با Groq =====
-def get_ai_response(user_message):
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "model": "llama3-70b-8192",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message}
-        ],
-        "temperature": 0.85,
-        "max_tokens": 300
-    }
+# منطق هوشمند (اتصال به هوش مصنوعی)
+async def rin_brain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
     
     try:
-        response = requests.post(url, headers=headers, json=data)
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
+        # ترکیب شخصیت رین با پیام کاربر و ارسال به هوش مصنوعی
+        prompt = f"{RIN_PERSONALITY}\n\nکاربر گفت: {user_message}\n\nحالا تو به عنوان رین جواب بده:"
+        response = model.generate_content(prompt)
+        
+        # اگر جواب از هوش مصنوعی آمد، همان را ارسال کن
+        if response and response.text:
+            await update.message.reply_text(response.text)
+        else:
+            raise Exception("پاسخ خالی بود")
+            
     except Exception as e:
-        return f"اوه! یه مشکلی پیش اومده... 😤 ولی باشه، بازم سعی کن!"
+        # اگر هوش مصنوعی قطع بود یا خطا داد، از جملات آماده استفاده کن (خیلی کم پیش می‌آید)
+        print(f"Error: {e}")
+        import random
+        await update.message.reply_text(random.choice(FALLBACK_REPLIES))
 
-# ===== هندلر پیام‌ها =====
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
-    if message.text:
-        reply = get_ai_response(message.text)
-        bot.reply_to(message, reply)
+# ثبت دستورات
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rin_brain))
 
-# ===== روت‌های Flask =====
-@app.route('/')
-def index():
-    return "Rein-chan is running! 🌸"
-
-@app.route('/health')
-def health():
+# تنظیم Webhook
+@app.route(f"/webhook/{TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put(update)
     return "OK"
 
-# ===== اجرا =====
-if __name__ == '__main__':
-    import threading
-    threading.Thread(target=bot.infinity_polling).start()
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    # آدرس سرویس خودت را اینجا بگذار (مثال: https://my-rin-bot.onrender.com)
+    application.bot.set_webhook(url=f"https://<نام-سرویس-شما>.onrender.com/webhook/{TOKEN}")
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
