@@ -5,18 +5,25 @@ from openai import OpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# تنظیمات اصلی (این‌ها را از Render می‌خواند)
-TOKEN = os.getenv("BOT_TOKEN")  # توکن ربات تلگرام (در Render ست شده)
-API_KEY = os.getenv("GROQ_API_KEY")  # کلید Groq (در Render ست شده)
+# ==========================================
+# ⚠️ اینجا همه چیز را مستقیم وارد کن (بدون هیچ علامت اضافه)
+# ==========================================
+# ۱. توکن ربات تلگرام (از BotFather)
+BOT_TOKEN = "8855754307:AAGifvGwSFGtRIz8RF0T81huSlSEo5HA6IY"
+
+# ۲. کلید هوش مصنوعی (از Groq)
+GROQ_API_KEY = "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"  # <--- کلید Groq خودت را اینجا بگذار
+
 BASE_URL = "https://api.groq.com/openai/v1"
 MODEL = "llama-3.3-70b-versatile"
+# ==========================================
 
 # اتصال به هوش مصنوعی
-client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+client = OpenAI(api_key=GROQ_API_KEY, base_url=BASE_URL)
 
 # تنظیمات Flask و تلگرام
 app = Flask(__name__)
-application = Application.builder().token(TOKEN).build()
+application = Application.builder().token(BOT_TOKEN).build()
 
 # شخصیت رین (تسوندره)
 RIN_PERSONALITY = """
@@ -72,7 +79,7 @@ def home():
     return "ربات رین زنده است! ✅"
 
 # مسیر دریافت پیام از تلگرام
-@app.route(f"/webhook/{TOKEN}", methods=["POST"])
+@app.route(f"/webhook/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
     application.update_queue.put(update)
@@ -89,7 +96,7 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_m
 # ==========================================
 if __name__ == "__main__":
     # تنظیم Webhook برای تلگرام
-    application.bot.set_webhook(url=f"https://rinchan.onrender.com/webhook/{TOKEN}")
+    application.bot.set_webhook(url=f"https://rinchan.onrender.com/webhook/{BOT_TOKEN}")
     
     # اجرای Flask روی پورتی که Render می‌دهد
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
